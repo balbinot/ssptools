@@ -6,8 +6,13 @@ Development Lead
 ----------------
 
 * Eduardo Balbinot <eduardo.balbinot@gmail.com>
+* Mark Gieles <m.gieles@surrey.ac.uk>
+* Miklos Peuten <m.peuten@surrey.ac.uk>
 
 Contributors
 ------------
 
-None yet. Why not be the first?
+* Holger Baumgardt
+* Andreas Kuepper
+* Justin Read
+* Jeremy Webb
