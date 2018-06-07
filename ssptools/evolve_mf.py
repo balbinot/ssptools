@@ -16,12 +16,6 @@ from ifmr import IFMR, get_data
 SMALLNUMBER = 1e-9
 dev = True
 
-if dev:
-    _ROOT = '/home/eb0025/ssptools/ssptools/'
-else:
-    _ROOT = os.path.abspath(os.path.dirname(__file__))
-
-
 class evolve_mf:
     """
     Class to evolve the stellar mass function, to be included in EMACSS
@@ -146,14 +140,8 @@ class evolve_mf:
 
     def ifm(self, m):
         """ Initial final mass relation for WD, NS & BH """
-        # WD
-        if m <= 10:
-            return 0.561 * m**0.441
-        # NS
-        if m < self.IFMR.m_min:
-            return 1.4
 
-        return self.IFMR.predict(m, 0.561 * m**0.441)
+        return self.IFMR.predict(m)
 
     def mi_to_mrem(self, mi):
         # Approximate initial-final mass relation

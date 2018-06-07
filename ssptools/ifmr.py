@@ -91,7 +91,7 @@ class IFMR:
                   falling back to maximum of {:.2f}""".format(feh, fback))
             self.FeHe_WD = fback
 
-    def predict(self, m_in, alt=None):
+    def predict(self, m_in):
 
         # BH pieces
         if m_in >= self.C:
@@ -121,9 +121,11 @@ if __name__ == "__main__":
         for x in X:
             Y.append(IFM.predict(x))
 
-        plt.plot(X, Y, label=feh)
+        plt.plot(X, Y, label='{:.2f}'.format(feh))
 
     plt.loglog()
     plt.legend(loc='best')
+    plt.xlabel('M_initial')
+    plt.ylabel('M_final')
 
     plt.show()
