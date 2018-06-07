@@ -1,6 +1,8 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from __future__ import absolute_import, division, print_function, unicode_literals
+from __future__ import (absolute_import, division, print_function,
+                        unicode_literals)
 
 import os
 import numpy as np
@@ -8,7 +10,8 @@ import pylab as plt
 from scipy.integrate import ode
 from pylab import sqrt
 
-from . import Kroupa as K
+from df import Kroupa
+from ifmr import IFMR, get_data
 
 SMALLNUMBER = 1e-9
 dev = True
@@ -19,89 +22,42 @@ else:
     _ROOT = os.path.abspath(os.path.dirname(__file__))
 
 
-def get_data(path):
-    return os.path.join(_ROOT, 'data', path)
-
-
-class BH_IFMR:
-    def __init__(self, FeHe):
-        """
-        Provides a class for the initial-final mass of black holes. Uses
-        tabulated values for the polynomial approximations. These are based
-        on SSE models at different metallicities.
-        """
-
-        Grid = np.loadtxt(get_data("sevtables/bhifmr.dat"), delimiter=',')
-        self.FeHe = FeHe
-        contants = []
-
-        for loop in range(1, len(Grid[0])):
-            contants.append(np.interp(FeHe, Grid[:, 0], Grid[:, loop]))
-        contants = np.array(contants)
-
-        self.m_min, self.B, self.C = contants[:3]
-        self.p1 = np.poly1d(contants[3:5])
-        self.p2 = np.poly1d(contants[5:7])
-        self.p3 = np.poly1d(contants[7:])
-        self.mBH_min = self.predict(self.m_min)
-
-    def predict(self, m_in, alt=None):
-        if m_in >= self.C:
-            return self.p3(m_in)
-        if m_in >= self.B:
-            return self.p2(m_in)
-        if m_in >= self.m_min:
-            return self.p1(m_in)
-        return alt
-
-
 class evolve_mf:
     """
-    Class to evolve the stellar mass function, to be included in EMACSS For
-    nbin mass bins, the routine solves for an array with length 4nbin,
-    containing:
+    Class to evolve the stellar mass function, to be included in EMACSS
+    For nbin mass bins, the routine solves for an array with length 4nbin, containing:
     y = {N_stars_j, alpha_stars_j, N_remnants_j, M_remnants_j}
 
     based on \dot{y}
 
     """
 
-    def __init__(self, m123, a12, nbin12, tout, N0, Ndot, tcc, t_rh, NS_ret,
-                 BH_ret, FeHe):
-        """
-        Initialize the mass-function evolution object.
+    def __init__(self, m123, a12, nbin12, tout, N0, Ndot, tcc, NS_ret,
+                 BH_ret_int, BH_ret_dyn, FeHe):
 
-        INPUT:
-            m123: mass boundaries
-            a12: slopes
-            nbin12: number of bins in each segment
-            tout:
-            N0:
-            Ndot:
-            tcc:
-            t_rh:
-            NS_ret:
-            BH_ret:
-            FeHe:
-        """
-
-
-    #   TODO: replace set_imf by Kroupa
+        # Initialise the mass bins for double power-law IMF:
+        #   - 2 input slopes
+        #   - number of bins in each power-law segment
+        #   - 3 boundary masses
+        #   - total initial number of stars N0
         self.set_imf(m123, a12, nbin12, N0)
+        mstogrid = np.loadtxt(get_data('sevtables/msto.dat'))
 
-        # These constants define t_ms(t). FIXME: replace by interpolated Fe/H
-        # coefficients
-        self.tms_constants = [0.413, 9.610, -0.350]
+        # These constants define t_ms(t), Eduardo will supply an [Fe/H]
+        # interpolation
+        # old SSE values are self.tms_constants = [0.413, 9.610, -0.350]
+        fehs = np.argmin(np.abs(mstogrid[:, 0] - FeHe))
+        self.tms_constants = mstogrid[fehs, 1:]
 
         # Core collapse time, will be provided by EMACSS, here it can be set
         # manually
         self.tcc = tcc
-        self.t_rh = t_rh
         self.Ndot = Ndot
         self.NS_ret = NS_ret
-        self.BH_ret = BH_ret
+        self.BH_ret_int = BH_ret_int  # Initial BH retention
+        self.BH_ret_dyn = BH_ret_dyn  # Dynamical BH retention
         self.FeHe = FeHe
-        self.BHIFMR = BH_IFMR(FeHe)
+        self.IFMR = IFMR(FeHe)
 
         # Minimum of stars to call a bin "empty"
         self.Nmin = 1e-1
@@ -109,11 +65,6 @@ class evolve_mf:
         # Depletion mass: below this mass preferential disruption
         # Harcoded for now, perhaps vary, fit on Nbody?
         self.md = 1.2
-
-        # Constans needed for BH ejection
-        self.E_zeta = 0.172
-        self.BH_loss_c = 0.0254226171
-        self.BH_loss_t = 0.4036536536
 
         # Setup sev parameters for each bin
         self.tms_l = self.compute_tms(self.me[:-1])
@@ -143,7 +94,7 @@ class evolve_mf:
         # Total number of bins for stars and for remnants
         # (Note that we work with an array of 4nbin)
 
-        nb = nbin[0] + nbin[1]
+        nb = nbin12[0] + nbin12[1]
         self.nbin = nb
 
         # Set array of slopes
@@ -172,18 +123,6 @@ class evolve_mf:
         self.alphas0 = alpha
         self.ms0 = A * self.Pk(alpha, 2, m1, m2) / self.Ns0
 
-        X = self.ms0
-        Y = self.Ns0
-        #plt.plot(np.log10(X), X*np.log(10)*Y, 'k-')
-        plt.plot(X, Y, 'k-')
-        print(X, Y)
-        plt.semilogy()
-        plt.semilogx()
-        plt.xlabel(r'log(m/M$_{\odot})$')
-        plt.ylabel(r'log($\xi$(m))')
-        plt.show()
-        exit()
-
         # Special edges for stars because stellar evolution affects this
         self.mes0 = np.copy(self.me)
 
@@ -207,21 +146,14 @@ class evolve_mf:
 
     def ifm(self, m):
         """ Initial final mass relation for WD, NS & BH """
-
-        return self.BHIFMR.predict(m, 0.561 * m**0.441)
-        """
         # WD
         if m <= 10:
-            return 0.561*m**0.441
+            return 0.561 * m**0.441
         # NS
-        if m < 20:
+        if m < self.IFMR.m_min:
             return 1.4
 
-        # If reamant is BH. See P2018 eq. B1
-        if m < 26.0:
-            return m*1.89829553 -33.62178133
-        return 1.41699055e-03*m**2 -2.02985970e-01*m +  2.06873895e+01
-        """
+        return self.IFMR.predict(m, 0.561 * m**0.441)
 
     def mi_to_mrem(self, mi):
         # Approximate initial-final mass relation
@@ -293,8 +225,8 @@ class evolve_mf:
                 frem = 1  # full retention for WD
                 if mrem >= 1.36:
                     frem = self.NS_ret
-                if mrem >= self.BHIFMR.mBH_min:
-                    frem = self.BH_ret
+                if mrem >= self.IFMR.mBH_min:
+                    frem = self.BH_ret_int
                 Nj_dot_r[irem] = -dNdt * frem
                 Mj_dot_r[irem] = -mrem * dNdt * frem
 
@@ -314,34 +246,6 @@ class evolve_mf:
         alphas = y[nb:2 * nb]
         Nr = np.abs(y[2 * nb:3 * nb])
         Mr = np.abs(y[3 * nb:4 * nb])
-
-        # Kick BHs out Breen & Heggie style
-        if t > self.t_rh * self.BH_loss_t:
-            # Get total Mass of Cluster
-            mes = np.copy(self.me)
-            if t > self.tms_u[-1]:
-                isev = np.where(mes > self.mto(t))[0][0]
-                mes[isev] = self.mto(t)
-
-            As = np.zeros(self.nbin)
-            P1 = self.Pk(alphas, 1, mes[:-1], mes[1:])
-            sel = (P1 != 0)
-            As[sel] = Ns[sel] / P1[sel]
-            Ms = As * self.Pk(alphas, 2, mes[:-1], mes[1:])
-
-            MC = Ms.sum() + Mr.sum()
-
-            # Caculate ejected BH Mass
-            M_BH_dot = self.E_zeta * self.BH_loss_c * (MC / self.t_rh)
-            # Remove mass from highes Mass reamant bin
-            try:
-                rsev = np.where(y[2 * nb:3 * nb] > self.Nmin)[0][-1]
-                BH_mm = Mr[rsev] / Nr[rsev]
-                if BH_mm >= self.BHIFMR.mBH_min:
-                    Nj_dot_r[rsev] -= M_BH_dot / BH_mm
-                    Mj_dot_r[rsev] -= M_BH_dot
-            except:
-                pass  # this happens if there are no BH yet
 
         if t < self.tcc:
             N_sum = Ns.sum() + Nr.sum()
@@ -401,8 +305,29 @@ class evolve_mf:
         As = Ns / self.Pk(alphas, 1, mes[0:-1], mes[1:])
         Ms = As * self.Pk(alphas, 2, mes[0:-1], mes[1:])
 
-        Nr = y[2 * nb:3 * nb]
-        Mr = y[3 * nb:4 * nb]
+        Nr = y[2 * nb:3 * nb].copy()
+        Mr = y[3 * nb:4 * nb].copy()
+
+        # Do BH cut, if all BH where created
+        if self.compute_tms(self.IFMR.m_min) < t:
+            # Get Total BH Mass retained
+            sel = self.me[:-1] >= self.IFMR.mBH_min
+            MBH = Mr[sel].sum() * (1. - self.BH_ret_dyn)
+            i = nb
+            # Remove BH starting from Heavy to Ligth
+            while MBH != 0:
+                i -= 1
+                if Nr[i] < self.Nmin:
+                    continue
+                if Mr[i] < MBH:
+                    MBH -= Mr[i]
+                    Mr[i] = 0
+                    Nr[i] = 0
+                    continue
+                mmr = Mr[i] / Nr[i]
+                Mr[i] -= MBH
+                Nr[i] -= MBH / mmr
+                MBH = 0
 
         return Ns, alphas, Ms, Nr, Mr, mes
 
@@ -464,25 +389,25 @@ if __name__ == "__main__":
     # Some integration settings
     Ndot = -20  # per Myr
     tcc = 0
-    t_rh = 100  # Myr, half-mass relaxation time
     N = 2.e5
-    NS_ret = 1.0  # inital NS retention
-    BH_ret = 1.0  # inital BH retention
-    FeHe = -2.5  # Metallicity
+    NS_ret = 0.1  # inital NS retention
+    BH_ret_int = 1.0  # inital BH retention
+    BH_ret_dyn = 0.8  # Dynamical BH retention
+    FeHe = 0  # Metallicity
 
     tout = np.linspace(3e3, 3e3, 1)
     tout = np.array([
         1, 2, 3, 4, 5, 6, 7, 8, 10, 25, 50, 100, 250, 500, 1000, 2000, 3000,
         4000, 5000, 6000, 7000, 8000, 9000
     ])
-
+    #    tout = np.array([75])
     # masses and slopes that define double power-law IMF
-    m123 = [0.08, 0.5, 120]
+    m123 = [0.1, 0.5, 100]
     a12 = [-1.3, -2.3]
 
-    nbin = [5, 10]
-    f = evolve_mf(m123, a12, nbin, tout, N, Ndot, tcc, t_rh, NS_ret, BH_ret,
-                  FeHe)
+    nbin = [5, 20]
+    f = evolve_mf(m123, a12, nbin, tout, N, Ndot, tcc, NS_ret, BH_ret_int,
+                  BH_ret_dyn, FeHe)
 
     plotmf = 1
     plotm = 0

@@ -203,12 +203,8 @@ if __name__ == '__main__':
     K = Kroupa(a=a, mlim=mlim)
     mlim = K._mlim
 
-    K._getmass(
-
     I, I2 = K.pintegral()
-    print(np.sum(I), ' AAAAAAAAAAAAAAA')
     p.plot(I2, 2e5 * I, 'k-')
-    print(I2, I)
     p.loglog()
     p.show()
     exit()
