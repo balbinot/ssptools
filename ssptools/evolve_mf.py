@@ -140,21 +140,7 @@ class evolve_mf:
 
     def ifm(self, m):
         """ Initial final mass relation for WD, NS & BH """
-
         return self.IFMR.predict(m)
-
-    def mi_to_mrem(self, mi):
-        # Approximate initial-final mass relation
-        mi = np.array(mi)
-        mrem = mi * 0
-        c = (mi > 10)
-        if sum(c) > 0:
-            # Black holes: set to 0 for no retention
-            mrem[c] = 0.25 * mi[c] * 0
-
-        # Neutron stars and white dwarfs
-        mrem[~c] = self.ifm(mi[~c])
-        return mrem
 
     def _derivs(self, t, y):
         # Main function computing the various derivatives
@@ -381,7 +367,7 @@ if __name__ == "__main__":
     NS_ret = 0.1  # inital NS retention
     BH_ret_int = 1.0  # inital BH retention
     BH_ret_dyn = 0.8  # Dynamical BH retention
-    FeHe = 0  # Metallicity
+    FeHe = -2.0  # Metallicity
 
     tout = np.linspace(3e3, 3e3, 1)
     tout = np.array([
