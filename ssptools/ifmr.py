@@ -11,7 +11,7 @@ SMALLNUMBER = 1e-9
 dev = True
 
 if dev:
-    _ROOT = '/home/eb0025/ssptools/ssptools/'
+    _ROOT = '/home/balbinot/ssptools/ssptools'
 else:
     _ROOT = os.path.abspath(os.path.dirname(__file__))
 

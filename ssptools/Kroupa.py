@@ -1,11 +1,18 @@
 # -*- coding: utf-8 -*-
 #!/usr/bin/env python
 
-from __future__ import absolute_import, division, print_function, unicode_literals
 import numpy as np
 from numpy import power as pow
+from scipy.integrate import quad
 
 debug = False
+
+def intinfo(a, mmin, mmax, XMIN, XMAX, xmin, xmax, II, II2):
+    ostr = """a={:.2f}, mlim=[{:.2f}, {:.2f}],
+Int range=[{:.2f}, {:.2f}],
+Requested range=[{:.2f}, {:.2f}],
+I0={:.6f}, I1={:.6f}\n""".format(a, mmin, mmax, XMIN, XMAX, xmin, xmax, II, II2)
+    print(ostr.rstrip('\r'))
 
 
 class Kroupa():
@@ -65,27 +72,6 @@ class Kroupa():
             Y = np.r_[Y, y]
         return Y
 
-    def pintegral(self):
-        """
-        Compute the zeroth and first moment at every piece
-        """
-
-        mlim = self._mlim
-        a = self._a
-        C = self._C
-        norm = self._norm
-
-        I = []
-        I2 = []
-        for i in range(len(a)):
-            I.append(norm * C[i] * self._mom0(mlim[i], mlim[i + 1], a[i]))
-            I2.append(norm * C[i] * self._mom1(mlim[i], mlim[i + 1], a[i]))
-            print('a={:.2f}, piece=[{:.2f}, {:.2f}], limits=[{:.2f}, {:.2f}]'.
-                  format(a[i], mlim[i], mlim[i + 1], mlim[i], mlim[i + 1]))
-        I = np.array(I)
-        I2 = np.array(I2) / I
-        return (I, I2)
-
     def integral(self, xmin, xmax):
         """
         Compute the zeroth and first moment of the PDF
@@ -109,24 +95,28 @@ class Kroupa():
         if xmax == mlim[-1]:
             imax = len(mlim) - 1
         else:
-            imax = np.where(xmax / mlim < 1)[0][-1] - 1
+            imax = np.where(xmax / mlim < 1)[0][0]
 
         I = 0
         I2 = 0
         if imin == imax:
             I = norm * C[imin] * self._mom0(xmin, xmax, a[imin])
             I2 = norm * C[imin] * self._mom1(xmin, xmax, a[imin])
+            i = imin
+            if debug == True:
+                print("part {i} of {j} {imin}, {imax}".format(i=i+1, j=imax-imin, imin=imin, imax=imax))
+                intinfo(a[i], mlim[i], mlim[i + 1], XMIN, XMAX, xmin, xmax, II, II2)
         else:
-            for i in range(imin, imax):
+            for h, i in enumerate(range(imin, imax)):
                 XMIN = np.max((mlim[i], xmin))
                 XMAX = np.min((mlim[i + 1], xmax))
+                II = norm * C[i] * self._mom0(XMIN, XMAX, a[i])
+                II2 = norm * C[i] * self._mom1(XMIN, XMAX, a[i])
+                I += II
+                I2 += II2
                 if debug == True:
-                    print(
-                        'a={:.2f}, piece=[{:.2f}, {:.2f}], limits=[{:.2f}, {:.2f}]'.
-                        format(a[i], mlim[i], mlim[i + 1], XMIN, XMAX))
-                I += norm * C[i] * self._mom0(XMIN, XMAX, a[i])
-                I2 += norm * C[i] * self._mom1(XMIN, XMAX, a[i])
-
+                    print("part {h} of {j} {imin}, {imax}".format(h=h+1, j=imax-imin, imin=imin, imax=imax))
+                    intinfo(a[i], mlim[i], mlim[i + 1], XMIN, XMAX, xmin, xmax, II, II2)
         return (I, I2)
 
     def sample(self, n):
@@ -203,20 +193,8 @@ if __name__ == '__main__':
     K = Kroupa(a=a, mlim=mlim)
     mlim = K._mlim
 
-    K._getmass(
-
-    I, I2 = K.pintegral()
-    print(np.sum(I), ' AAAAAAAAAAAAAAA')
-    p.plot(I2, 2e5 * I, 'k-')
-    print(I2, I)
-    p.loglog()
-    p.show()
-    exit()
-
-    eep, m, logT, logL, g, r, i = np.loadtxt(
-        '/home/eb0025/Dropbox/sptools/MIST_iso_5b0533fab00b3.iso.cmd',
-        usecols=(0, 2, 4, 6, 10, 11, 12),
-        unpack=True)
+    eep, m, logT, logL, g, r, i = np.loadtxt('/home/balbinot/ssptools/ssptools/data/models/MIST_iso_5b0533fab00b3.iso.cmd',
+               usecols=(0, 2, 4, 6, 10, 11, 12), unpack=True)
 
     ilogL = interp1d(m, logL, bounds_error=False)
     ilogT = interp1d(m, logT, bounds_error=False)
@@ -224,47 +202,25 @@ if __name__ == '__main__':
     ir = interp1d(m, r, bounds_error=False)
     ii = interp1d(m, i, bounds_error=False)
 
+    def evalf(m):
+        return K.eval(m)*(np.exp(ilogL(m)))
+
     # Test integration
     for mmin, mmax in zip(m[0:-1], m[1:]):
         I, I2 = K.integral(mmin, mmax)
-        print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f}".format(
-            mmin, mmax, mmax - mmin, I, I2))
-
-    # Show integration of MF along the isochrone
-    p.figure(figsize=(8, 8))
-    mcentral = 0.5 * (m[1:] - m[:-1])
-    I, I2 = [], []
-    for mmin, mmax in zip(m[0:-1], m[1:]):
-        res = K.integral(mmin, mmax)
-        I.append(res[0])
-        I2.append(res[1])
-    I = np.array(I + [I[0]])
-
-    p.subplot(121)
-    p.plot(g - r, g, 'k-')
-    p.scatter(g - r, g, c=I, s=60, vmin=0, vmax=0.005, zorder=99)
-    p.ylim(p.ylim()[::-1])
-    p.xlabel('g-r')
-    p.ylabel('g')
-
-    p.subplot(122)
-    p.plot(logT, logL, 'k-')
-    p.scatter(logT, logL, c=I, s=60, vmin=0, vmax=0.005, zorder=99)
-    p.xlim(p.xlim()[::-1])
-    p.xlabel('logT')
-    p.ylabel('logL')
-
-    p.savefig("int" + argv[1] + '.png')
+        print("{:.8f} {:.8f} {:.8f} {:.8f} {:.8f}".format(
+           mmin, mmax, mmax - mmin, I, I2))
 
     # Show synthetic CMD
+    N = np.int(3.0e5)
     p.figure(figsize=(8, 8))
-    mass = K.sample(300000)  # sample some masses
+    mass = K.sample(N)  # sample some masses
 
     sg = ig(mass)
     sr = ir(mass)
 
     def err(x):
-        ee = 0.002 + np.exp((x - 10) / 1.3)
+        ee = 0.002 + np.exp((x - 12) / 1.3)
         ee[ee > 0.5] = 0.5
         return ee
 
@@ -274,12 +230,11 @@ if __name__ == '__main__':
     p.plot(sg - sr, sg, 'k.', ms=1, alpha=0.8)
     p.ylim(14, -2)
     p.xlim(-1.2, 3)
-    p.savefig("cmd" + argv[1] + '.png')
 
     # Show MF
     p.figure(figsize=(8, 8))
     X = np.linspace(mlim[0], mlim[-1] - 0.01, 10000)
-    Y = K.eval(X, N0=2.e5)
+    Y = K.eval(X, N0=N)/N
     print("average mass {:.4f}".format(np.mean(mass)))
     bins = np.linspace(np.log10(mlim[0]), np.log10(mlim[-1]), 100)
     p.hist(
@@ -294,5 +249,4 @@ if __name__ == '__main__':
     p.plot(np.log10(X), X * np.log(10) * Y, 'k-')
     p.xlabel(r'log(m/M$_{\odot})$')
     p.ylabel(r'log($\xi$(m))')
-    p.savefig("mf" + argv[1] + '.png')
     p.show()
