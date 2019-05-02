@@ -285,7 +285,7 @@ class evolve_mf:
         # Do BH cut, if all BH where created
         if self.compute_tms(self.IFMR.m_min) < t:
             # Get Total BH Mass retained
-            sel = self.me[:-1] >= self.IFMR.mBH_min
+            sel = self.me[1:] >= self.IFMR.mBH_min
             MBH = Mr[sel].sum() * (1. - self.BH_ret_dyn)
             i = nb
             # Remove BH starting from Heavy to Ligth
