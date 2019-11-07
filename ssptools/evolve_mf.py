@@ -240,7 +240,9 @@ class evolve_mf:
 
         if t > self.tms_u[-1]:
             isev = np.where(mes > self.mto(t))[0][0] - 1
-            mes[isev + 1] = self.mto(t)
+            mto = self.mto(t)
+            if (mto > mes[isev]):
+                mes[isev + 1] = mto
 
         m1 = mes[0:-1]
         m2 = mes[1:]
