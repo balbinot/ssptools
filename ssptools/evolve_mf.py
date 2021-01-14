@@ -84,7 +84,7 @@ class evolve_mf:
             index = glob.glob(get_data("sse/*"))
             for i in range(len(index)):
                 # pull out the metallicities
-                index[i] = float(index[i].split("FEH")[-1].split("'")[0])
+                index[i] = float(index[i].split("FEH")[-1].split(".dat")[0])
 
             # get the closest value
             grid_feh = min(index, key=lambda x: abs(x - self.FeHe))
