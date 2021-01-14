@@ -96,7 +96,7 @@ class evolve_mf:
                 grid_feh = f"{grid_feh:.2f}"
 
             # re-build the path
-            feh_path = get_data("sse/") + "MP_FEH" + grid_feh
+            feh_path = get_data("sse/") + "MP_FEH" + grid_feh + ".dat"
 
             # load in the data
             self.fb_grid = np.loadtxt(feh_path, usecols=(1, 3), unpack=True)
