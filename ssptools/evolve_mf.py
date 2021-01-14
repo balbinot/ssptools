@@ -10,8 +10,7 @@ import pylab as plt
 from scipy.integrate import ode
 from pylab import sqrt
 
-from df import Kroupa
-from ifmr import IFMR, get_data
+from .ifmr import IFMR, get_data
 
 SMALLNUMBER = 1e-9
 dev = True
