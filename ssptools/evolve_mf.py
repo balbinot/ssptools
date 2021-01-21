@@ -4,20 +4,20 @@
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
-import os
+import glob
 import numpy as np
 import pylab as plt
 from scipy.integrate import ode
+from scipy.interpolate import UnivariateSpline, interp1d
 from pylab import sqrt
 
-from df import Kroupa
-from ifmr import IFMR, get_data
+from .ifmr import IFMR, get_data
 
 SMALLNUMBER = 1e-9
-dev = True
+dev = False
 
 class evolve_mf:
-    """
+    r"""
     Class to evolve the stellar mass function, to be included in EMACSS
     For nbin mass bins, the routine solves for an array with length 4nbin, containing:
     y = {N_stars_j, alpha_stars_j, N_remnants_j, M_remnants_j}
@@ -27,7 +27,7 @@ class evolve_mf:
     """
 
     def __init__(self, m123, a12, nbin12, tout, N0, Ndot, tcc, NS_ret,
-                 BH_ret_int, BH_ret_dyn, FeHe):
+                 BH_ret_int, BH_ret_dyn, FeHe, natal_kicks=False, vesc=90):
 
         # Initialise the mass bins for double power-law IMF:
         #   - 2 input slopes
@@ -57,7 +57,7 @@ class evolve_mf:
         self.Nmin = 1e-1
 
         # Depletion mass: below this mass preferential disruption
-        # Harcoded for now, perhaps vary, fit on Nbody?
+        # Hardcoded for now, perhaps vary, fit on Nbody?
         self.md = 1.2
 
         # Setup sev parameters for each bin
@@ -73,6 +73,35 @@ class evolve_mf:
         self.nt = len(self.t)
 
         self.nstep = 0  # counts number of function evaluations
+
+        # Setup for natal kicks
+        self.vesc = vesc
+        self.natal_kicks = natal_kicks
+        if self.natal_kicks:
+            # load in the ifmr data to interpolate fb from mr
+
+            # index the data
+            index = glob.glob(get_data("sse/*"))
+            for i in range(len(index)):
+                # pull out the metallicities
+                index[i] = float(index[i].split("FEH")[-1].split(".dat")[0])
+
+            # get the closest value
+            grid_feh = min(index, key=lambda x: abs(x - self.FeHe))
+
+            # add in '+' if it's positive so we can build the correct path
+            if grid_feh >= 0:
+                grid_feh = "+" + f"{grid_feh:.2f}"
+            else:
+                grid_feh = f"{grid_feh:.2f}"
+
+            # re-build the path
+            feh_path = get_data("sse/") + "MP_FEH" + grid_feh + ".dat"
+
+            # load in the data
+            self.fb_grid = np.loadtxt(feh_path, usecols=(1, 3), unpack=True)
+
+
 
         # GO!
         self.evolve(tend)
@@ -266,6 +295,27 @@ class evolve_mf:
 
         return np.r_[Nj_dot_s, aj_dot_s, Nj_dot_r, Mj_dot_r]
 
+    def maxwellian(self, x, a):
+        norm = np.sqrt(2 / np.pi)
+        exponent = (x ** 2) * np.exp((-1 * (x ** 2)) / (2 * (a ** 2)))
+        return norm * exponent / a ** 3
+
+    def get_retention(self, fb, vesc):
+
+        if fb == 1.0:
+            return 1.0
+
+        v_space = np.linspace(0, 1000, 1000)
+        kick_spl_loop = UnivariateSpline(
+            x=v_space,
+            y=self.maxwellian(v_space, 265 * (1 - fb)),
+            s=0,
+            k=3,
+        )
+        retention = kick_spl_loop.integral(0, vesc)
+
+        return retention
+
     def extract_arrays(self, t, y):
         nb = self.nbin
         # Extract total N, M and split in Ns and Ms
@@ -287,10 +337,49 @@ class evolve_mf:
         # Do BH cut, if all BH where created
         if self.compute_tms(self.IFMR.m_min) < t:
             # Get Total BH Mass retained
-            sel = self.me[1:] >= self.IFMR.mBH_min
+            sel1 = self.me[:-1][self.me[:-1] < self.IFMR.mBH_min]
+            sel_lim = sel1[-1]
+            sel = self.me[:-1] >= sel_lim  # self.IFMR.mBH_min
+
             MBH = Mr[sel].sum() * (1. - self.BH_ret_dyn)
+
+            natal_ejecta = 0.0
+            if self.natal_kicks:
+                fb_interp = interp1d(
+                    self.fb_grid[0],
+                    self.fb_grid[1],
+                    kind="linear",
+                    bounds_error=False,
+                    fill_value=(0.0, 1.0),
+                )
+                for i in range(len(Mr)):
+                    # skip the bin if its empty
+                    if Nr[i] < self.Nmin:
+                        continue
+                    else:
+                        # get the mean mass
+                        mr = Mr[i] / Nr[i]
+                        # only eject the BHs
+                        if mr < sel_lim:
+                            continue
+                        else:
+                            fb = fb_interp(mr)
+
+                            if fb == 1.0:
+                                continue
+                            else:
+                                retention = self.get_retention(fb, self.vesc)
+                                # keep track of how much we eject
+                                natal_ejecta += Mr[i] * (1 - retention)
+                                # eject the mass
+                                Mr[i] *= retention
+                                Nr[i] *= retention
+
+            # adjust by the amount we've already ejected
+            MBH -= natal_ejecta
+
             i = nb
-            # Remove BH starting from Heavy to Ligth
+            # Remove BH starting from Heavy to Light
             while MBH != 0:
                 i -= 1
                 if Nr[i] < self.Nmin:
@@ -366,8 +455,8 @@ if __name__ == "__main__":
     Ndot = -20  # per Myr
     tcc = 0
     N = 2.e5
-    NS_ret = 0.1  # inital NS retention
-    BH_ret_int = 1.0  # inital BH retention
+    NS_ret = 0.1  # initial NS retention
+    BH_ret_int = 1.0  # initial BH retention
     BH_ret_dyn = 0.8  # Dynamical BH retention
     FeHe = -2.0  # Metallicity
 

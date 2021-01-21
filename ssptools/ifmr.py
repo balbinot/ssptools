@@ -8,7 +8,7 @@ import os
 import numpy as np
 
 SMALLNUMBER = 1e-9
-dev = True
+dev = False
 
 if dev:
     _ROOT = '/home/balbinot/ssptools/ssptools'
